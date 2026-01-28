@@ -24,11 +24,11 @@ extension NSRect {
 public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
     var channel: FlutterMethodChannel!
     
-    var trayIcon: TrayIcon?
+    var statusItem: NSStatusItem?
     var trayMenu: TrayMenu?
-    //    var statusItem: NSStatusItem = NSStatusItem();
-    
-    var _inited: Bool = false;
+    var iconPosition: NSControl.ImagePosition = .imageLeft
+    var lastTitle: String = ""
+    var textAttributes: [NSAttributedString.Key : Any]?
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "tray_manager", binaryMessenger: registrar.messenger)
@@ -102,20 +102,63 @@ public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
             channel.invokeMethod(methodName!, arguments: nil, result: nil)
         }
     }
+
+    private func ensureStatusItem() {
+        if statusItem != nil {
+            return
+        }
+        statusItem = NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.maximumLineHeight = 9
+        paragraphStyle.minimumLineHeight = 9
+        paragraphStyle.alignment = .right
+        paragraphStyle.lineBreakMode = .byClipping
+        textAttributes = [
+            .paragraphStyle: paragraphStyle,
+            .font: NSFont.systemFont(ofSize: 8.75),
+            .foregroundColor: NSColor.labelColor
+        ]
+        if let button = statusItem?.button {
+            button.target = self
+            button.action = #selector(statusItemButtonClicked(sender:))
+            button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp])
+            button.imageScaling = .scaleProportionallyDown
+            button.imagePosition = iconPosition
+        }
+    }
+
+    private func updateImagePosition(for title: String) {
+        guard let button = statusItem?.button else {
+            return
+        }
+        if title.isEmpty {
+            button.imagePosition = .imageOnly
+        } else {
+            button.imagePosition = iconPosition
+        }
+    }
+
+    private func imagePosition(from value: String) -> NSControl.ImagePosition {
+        switch value {
+        case "right":
+            return .imageRight
+        default:
+            return .imageLeft
+        }
+    }
     
     public func destroy(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        if (trayIcon?.statusItem != nil) {
-            NSStatusBar.system.removeStatusItem((trayIcon?.statusItem)!)
+        if (statusItem != nil) {
+            NSStatusBar.system.removeStatusItem(statusItem!)
         }
-        if (trayIcon != nil) {
-            trayIcon?.removeImage()
-            trayIcon = nil
-        }
+        statusItem = nil
+        trayMenu = nil
+        lastTitle = ""
         result(true)
     }
     
     public func getBounds(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        let frame = trayIcon?.statusItem?.button?.window?.frame;
+        let frame = statusItem?.button?.window?.frame;
         
         if (frame != nil) {
             let resultData: NSDictionary = [
@@ -141,24 +184,13 @@ public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
         let image = NSImage(data: imageData!)
         image!.size = NSSize(width: iconSize, height: iconSize)
         image!.isTemplate = isTemplate
-        
-        if (trayIcon == nil) {
-            trayIcon = TrayIcon()
-            trayIcon?.onTrayIconMouseDown = { () in
-                self.channel.invokeMethod(kEventOnTrayIconMouseDown, arguments: nil, result: nil)
-            }
-            trayIcon?.onTrayIconMouseUp = { () in
-                self.channel.invokeMethod(kEventOnTrayIconMouseUp, arguments: nil, result: nil)
-            }
-            trayIcon?.onTrayIconRightMouseDown = { () in
-                self.channel.invokeMethod(kEventOnTrayIconRightMouseDown, arguments: nil, result: nil)
-            }
-            trayIcon?.onTrayIconRightMouseUp = { () in
-                self.channel.invokeMethod(kEventOnTrayIconRightMouseUp, arguments: nil, result: nil)
-            }
+
+        ensureStatusItem()
+        self.iconPosition = imagePosition(from: iconPosition)
+        if let button = statusItem?.button {
+            button.image = image
         }
-        
-        trayIcon?.setImage(image!, iconPosition)
+        updateImagePosition(for: lastTitle)
         
         result(true)
     }
@@ -166,8 +198,10 @@ public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
     public func setIconPosition(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args:[String: Any] = call.arguments as! [String: Any]
         let iconPosition: String =  args["iconPosition"] as! String;
-        
-        trayIcon?.setImagePosition(iconPosition)
+
+        ensureStatusItem()
+        self.iconPosition = imagePosition(from: iconPosition)
+        updateImagePosition(for: lastTitle)
         
         result(true)
     }
@@ -175,8 +209,11 @@ public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
     public func setToolTip(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args:[String: Any] = call.arguments as! [String: Any]
         let toolTip: String =  args["toolTip"] as! String;
-        
-        trayIcon?.setToolTip(toolTip)
+
+        ensureStatusItem()
+        if let button = statusItem?.button {
+            button.toolTip = toolTip
+        }
         
         result(true)
     }
@@ -184,8 +221,21 @@ public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
     public func setTitle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args:[String: Any] = call.arguments as! [String: Any]
         let title: String =  args["title"] as! String;
-        
-        trayIcon?.setTitle(title)
+
+        ensureStatusItem()
+        if title == lastTitle {
+            result(true)
+            return
+        }
+        lastTitle = title
+        if let button = statusItem?.button {
+            if let attributes = textAttributes {
+                button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+            } else {
+                button.title = title
+            }
+        }
+        updateImagePosition(for: title)
         
         result(true)
     }
@@ -208,8 +258,8 @@ public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
     
     public func popUpContextMenu(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         if (trayMenu != nil) {
-            trayIcon?.statusItem?.menu = trayMenu
-            trayIcon?.statusItem?.button?.performClick(trayIcon)
+            statusItem?.menu = trayMenu
+            statusItem?.button?.performClick(nil)
         }
         result(true)
     }
@@ -217,6 +267,6 @@ public class TrayManagerPlugin: NSObject, FlutterPlugin, NSMenuDelegate {
     // NSMenuDelegate
     
     public func menuDidClose(_ menu: NSMenu) {
-        trayIcon?.statusItem?.menu = nil
+        statusItem?.menu = nil
     }
 }
