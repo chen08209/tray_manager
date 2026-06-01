@@ -1,4 +1,4 @@
-import SwiftUI
+import AppKit
 //
 //  TrayIcon.swift
 //  tray_manager
@@ -6,7 +6,33 @@ import SwiftUI
 //  Created by Lijy91 on 2022/5/15.
 //
 
-import AppKit
+class SpeedTextView: NSView {
+    var attributedString: NSAttributedString? {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 42, height: NSView.noIntrinsicMetric)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let attributedString = attributedString else {
+            return
+        }
+        let textBounds = attributedString.boundingRect(
+            with: NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        let y = max((bounds.height - textBounds.height) / 2, 0)
+        attributedString.draw(
+            in: NSRect(x: 0, y: y, width: bounds.width, height: ceil(textBounds.height))
+        )
+    }
+}
 
 public class TrayIcon: NSView {
     public var onTrayIconMouseDown:(() -> Void)?
@@ -26,15 +52,10 @@ public class TrayIcon: NSView {
         return iv
     }()
     
-    private let textField: NSTextField = {
-        let field = NSTextField()
-        field.isEditable = false
-        field.isBezeled = false
-        field.isHidden = true
-        field.drawsBackground = false
-        field.cell?.wraps = false
-        field.alignment = .right
-        return field
+    private let textView: SpeedTextView = {
+        let view = SpeedTextView()
+        view.isHidden = true
+        return view
     }()
     
     private let stackView: NSStackView = {
@@ -85,12 +106,10 @@ public class TrayIcon: NSView {
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor,constant:-2),
         ])
         
-        stackView.addArrangedSubview(imageView)
-        stackView.addArrangedSubview(textField)
-        textField.translatesAutoresizingMaskIntoConstraints = false
+        applyImagePosition("left")
+        textView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            textField.widthAnchor.constraint(equalToConstant: 42),
-            textField.trailingAnchor.constraint(equalTo:stackView.trailingAnchor),
+            textView.widthAnchor.constraint(equalToConstant: 42),
         ])
     }
     
@@ -105,27 +124,56 @@ public class TrayIcon: NSView {
     }
     
     public func setImage(_ image: NSImage, _ imagePosition: String) {
+        let wasHidden = imageView.isHidden
+        let previousSize = imageView.image?.size ?? NSSize.zero
+        let sizeChanged = previousSize.width != image.size.width || previousSize.height != image.size.height
         imageView.image = image
         imageView.isHidden = false
-        if let button = statusItem?.button {
+        applyImagePosition(imagePosition)
+        if wasHidden != imageView.isHidden || sizeChanged, let button = statusItem?.button {
             button.sizeToFit()
         }
     }
     
     public func setImagePosition(_ imagePosition: String) {
-        self.frame = statusItem!.button!.frame
+        applyImagePosition(imagePosition)
+        needsLayout = true
     }
     
     public func removeImage() {
-        statusItem?.button?.image = nil
-        self.frame = statusItem!.button!.frame
+        let wasHidden = imageView.isHidden
+        imageView.image = nil
+        imageView.isHidden = true
+        if wasHidden != imageView.isHidden, let button = statusItem?.button {
+            button.sizeToFit()
+        }
     }
     
     public func setTitle(_ title: String) {
-        textField.attributedStringValue = NSAttributedString(string: title, attributes: textAttributes)
-        textField.isHidden = title.isEmpty
-        if let button = statusItem?.button {
+        let wasHidden = textView.isHidden
+        textView.attributedString = title.isEmpty
+            ? nil
+            : NSAttributedString(string: title, attributes: textAttributes)
+        textView.isHidden = title.isEmpty
+        if wasHidden != textView.isHidden, let button = statusItem?.button {
             button.sizeToFit()
+        }
+    }
+
+    private func applyImagePosition(_ imagePosition: String) {
+        let views = imagePosition == "right"
+            ? [textView, imageView]
+            : [imageView, textView]
+
+        if stackView.arrangedSubviews == views {
+            return
+        }
+
+        for view in stackView.arrangedSubviews {
+            stackView.removeArrangedSubview(view)
+        }
+        for (index, view) in views.enumerated() {
+            stackView.insertArrangedSubview(view, at: index)
         }
     }
     

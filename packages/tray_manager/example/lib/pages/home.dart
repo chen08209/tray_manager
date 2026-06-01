@@ -23,7 +23,8 @@ class _HomePageState extends State<HomePage> with TrayListener {
   String _iconType = _kIconTypeOriginal;
   Menu? _menu;
 
-  Timer? _timer;
+  Timer? _iconFlashTimer;
+  Timer? _titleRefreshTimer;
 
   @override
   void initState() {
@@ -33,6 +34,8 @@ class _HomePageState extends State<HomePage> with TrayListener {
 
   @override
   void dispose() {
+    _iconFlashTimer?.cancel();
+    _titleRefreshTimer?.cancel();
     trayManager.removeListener(this);
     super.dispose();
   }
@@ -40,7 +43,7 @@ class _HomePageState extends State<HomePage> with TrayListener {
   Future<void> _handleSetIcon(String iconType) async {
     _iconType = iconType;
     String iconPath =
-        Platform.isWindows ? 'images/tray_icon.ico' : 'images/tray_icon.png';
+    Platform.isWindows ? 'images/tray_icon.ico' : 'images/tray_icon.png';
 
     if (_iconType == 'original') {
       iconPath = Platform.isWindows
@@ -52,7 +55,7 @@ class _HomePageState extends State<HomePage> with TrayListener {
   }
 
   void _startIconFlashing() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+    _iconFlashTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       _handleSetIcon(
         _iconType == _kIconTypeOriginal
             ? _kIconTypeDefault
@@ -63,9 +66,20 @@ class _HomePageState extends State<HomePage> with TrayListener {
   }
 
   void _stopIconFlashing() {
-    if (_timer != null && _timer!.isActive) {
-      _timer!.cancel();
-    }
+    _iconFlashTimer?.cancel();
+    setState(() {});
+  }
+
+  void _startTitleRefreshing() {
+    _titleRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final time = DateTime.now().toIso8601String().substring(11, 19);
+      trayManager.setTitle('$time\n$time');
+    });
+    setState(() {});
+  }
+
+  void _stopTitleRefreshing() {
+    _titleRefreshTimer?.cancel();
     setState(() {});
   }
 
@@ -86,10 +100,11 @@ class _HomePageState extends State<HomePage> with TrayListener {
             children: [
               Builder(
                 builder: (_) {
-                  bool isFlashing = (_timer != null && _timer!.isActive);
+                  bool isFlashing =
+                  (_iconFlashTimer != null && _iconFlashTimer!.isActive);
                   return TextButton(
                     onPressed:
-                        isFlashing ? _stopIconFlashing : _startIconFlashing,
+                    isFlashing ? _stopIconFlashing : _startIconFlashing,
                     child: isFlashing
                         ? const Text('stop flash')
                         : const Text('start flash'),
@@ -140,6 +155,16 @@ class _HomePageState extends State<HomePage> with TrayListener {
         const Divider(height: 0),
         ListTile(
           title: const Text('setTitle'),
+          trailing: Builder(
+            builder: (_) {
+              final isRefreshing = _titleRefreshTimer?.isActive ?? false;
+              return TextButton(
+                onPressed:
+                isRefreshing ? _stopTitleRefreshing : _startTitleRefreshing,
+                child: Text(isRefreshing ? 'stop refresh' : 'start refresh'),
+              );
+            },
+          ),
           onTap: () async {
             await trayManager.setTitle('tray_manager');
           },
