@@ -1,3 +1,9 @@
+## 0.5.3
+
+* feat(macos): add Swift Package Manager support
+* chore: replace mostly_reasonable_lints with flutter_lints
+* ci: align workflows with screen_retriever
+
 ## 0.5.2
 
 * fix(windows): tray icon disappears after explorer restart #85
