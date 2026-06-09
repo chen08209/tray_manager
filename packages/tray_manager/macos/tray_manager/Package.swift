@@ -11,11 +11,15 @@ let package = Package(
     products: [
         .library(name: "tray-manager", targets: ["tray_manager"])
     ],
-    dependencies: [],
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework")
+    ],
     targets: [
         .target(
             name: "tray_manager",
-            dependencies: [],
+            dependencies: [
+                .product(name: "FlutterFramework", package: "FlutterFramework")
+            ],
             path: "Classes"
         )
     ]
